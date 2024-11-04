@@ -197,7 +197,10 @@ int main(int argc, char *argv[]) {
   WGraph g = b.MakeGraph();
   SourcePicker<WGraph> sp(g, cli);
   auto SSSPBound = [&sp, &cli](const WGraph &g) {
-    return DeltaStep(g, sp.PickNext(), cli.delta(), cli.logging_en());
+    auto source = sp.PickNext();
+    std::cout << "Source: " << source << std::endl;
+
+    return DeltaStep(g, source, cli.delta(), cli.logging_en());
   };
   SourcePicker<WGraph> vsp(g, cli);
   auto VerifierBound = [&vsp](const WGraph &g, const pvector<WeightT> &dist) {

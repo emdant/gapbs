@@ -248,7 +248,10 @@ int main(int argc, char *argv[]) {
   Graph g = b.MakeGraph();
   SourcePicker<Graph> sp(g);
   auto BFSBound = [&sp, &cli](const Graph &g) {
-    return DOBFS(g, sp.PickNext(), cli.logging_en());
+    auto source = sp.PickNext();
+    std::cout << "Source: " << source << std::endl;
+
+    return DOBFS(g, source, cli.logging_en());
   };
   SourcePicker<Graph> vsp(g);
   auto VerifierBound = [&vsp](const Graph &g, const pvector<NodeID> &parent) {
