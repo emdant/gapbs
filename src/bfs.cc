@@ -246,14 +246,14 @@ int main(int argc, char *argv[]) {
     return -1;
   Builder b(cli);
   Graph g = b.MakeGraph();
-  SourcePicker<Graph> sp(g);
+  SourcePicker<Graph> sp(g, cli);
   auto BFSBound = [&sp, &cli](const Graph &g) {
     auto source = sp.PickNext();
     std::cout << "Source: " << source << std::endl;
 
     return DOBFS(g, source, cli.logging_en());
   };
-  SourcePicker<Graph> vsp(g);
+  SourcePicker<Graph> vsp(g, cli);
   auto VerifierBound = [&vsp](const Graph &g, const pvector<NodeID> &parent) {
     return BFSVerifier(g, vsp.PickNext(), parent);
   };
