@@ -17,7 +17,6 @@
 #include "util.h"
 #include "writer.h"
 
-
 /*
 GAP Benchmark Suite
 File:   Benchmark
@@ -25,7 +24,6 @@ Author: Scott Beamer
 
 Various helper functions to ease writing of kernels
 */
-
 
 // Default type signatures for commonly used types
 typedef int32_t NodeID;
@@ -41,37 +39,46 @@ typedef BuilderBase<NodeID, WNode, WeightT> WeightedBuilder;
 typedef WriterBase<NodeID, NodeID> Writer;
 typedef WriterBase<NodeID, WNode> WeightedWriter;
 
-
 // Used to pick random non-zero degree starting points for search algorithms
-template<typename GraphT_>
-class SourcePicker {
- public:
-  explicit SourcePicker(const GraphT_ &g, NodeID given_source = -1)
-      : given_source_(given_source), rng_(kRandSeed),
-        udist_(g.num_nodes()-1, rng_), g_(g) {}
+template <typename GraphT_> class SourcePicker {
+public:
+  explicit SourcePicker(const GraphT_ &g)
+      : given_source_(-1), non_changing_(false), rng_(kRandSeed),
+        udist_(g.num_nodes() - 1, rng_), g_(g) {}
+
+  explicit SourcePicker(const GraphT_ &g, const CLApp &cli)
+      : given_source_(cli.start_vertex()),
+        non_changing_(cli.random_nonchanging()), rng_(kRandSeed),
+        udist_(g.num_nodes() - 1, rng_), g_(g) {}
 
   NodeID PickNext() {
     if (given_source_ != -1)
       return given_source_;
+    if (non_changing_ && last_ != -1)
+      return last_;
+
     NodeID source;
     do {
       source = udist_();
     } while (g_.out_degree(source) == 0);
+    last_ = source;
+
     return source;
   }
 
- private:
+private:
   NodeID given_source_;
+  bool non_changing_;
   std::mt19937_64 rng_;
   UniDist<NodeID, std::mt19937_64> udist_;
   const GraphT_ &g_;
+  NodeID last_ = -1;
 };
 
-
 // Returns k pairs with the largest values from list of key-value pairs
-template<typename KeyT, typename ValT>
-std::vector<std::pair<ValT, KeyT>> TopK(
-    const std::vector<std::pair<KeyT, ValT>> &to_sort, size_t k) {
+template <typename KeyT, typename ValT>
+std::vector<std::pair<ValT, KeyT>>
+TopK(const std::vector<std::pair<KeyT, ValT>> &to_sort, size_t k) {
   std::vector<std::pair<ValT, KeyT>> top_k;
   ValT min_so_far = 0;
   for (auto kvp : to_sort) {
@@ -87,29 +94,26 @@ std::vector<std::pair<ValT, KeyT>> TopK(
   return top_k;
 }
 
-
 bool VerifyUnimplemented(...) {
   std::cout << "** verify unimplemented **" << std::endl;
   return false;
 }
 
-
 // Calls (and times) kernel according to command line arguments
-template<typename GraphT_, typename GraphFunc, typename AnalysisFunc,
-         typename VerifierFunc>
-void BenchmarkKernel(const CLApp &cli, const GraphT_ &g,
-                     GraphFunc kernel, AnalysisFunc stats,
-                     VerifierFunc verify) {
+template <typename GraphT_, typename GraphFunc, typename AnalysisFunc,
+          typename VerifierFunc>
+void BenchmarkKernel(const CLApp &cli, const GraphT_ &g, GraphFunc kernel,
+                     AnalysisFunc stats, VerifierFunc verify) {
   g.PrintStats();
   double total_seconds = 0;
   Timer trial_timer;
-  for (int iter=0; iter < cli.num_trials(); iter++) {
+  for (int iter = 0; iter < cli.num_trials(); iter++) {
     trial_timer.Start();
     auto result = kernel(g);
     trial_timer.Stop();
     PrintTime("Trial Time", trial_timer.Seconds());
     total_seconds += trial_timer.Seconds();
-    if (cli.do_analysis() && (iter == (cli.num_trials()-1)))
+    if (cli.do_analysis() && (iter == (cli.num_trials() - 1)))
       stats(g, result);
     if (cli.do_verify()) {
       trial_timer.Start();
@@ -122,4 +126,4 @@ void BenchmarkKernel(const CLApp &cli, const GraphT_ &g,
   PrintTime("Average Time", total_seconds / cli.num_trials());
 }
 
-#endif  // BENCHMARK_H_
+#endif // BENCHMARK_H_
