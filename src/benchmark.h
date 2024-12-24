@@ -43,36 +43,30 @@ typedef WriterBase<NodeID, WNode> WeightedWriter;
 template <typename GraphT_> class SourcePicker {
 public:
   explicit SourcePicker(const GraphT_ &g)
-      : given_source_(-1), non_changing_(false), rng_(kRandSeed),
-        udist_(g.num_nodes() - 1, rng_), g_(g) {}
+      : given_source_(-1), rng_(kRandSeed), udist_(g.num_nodes() - 1, rng_),
+        g_(g) {}
 
-  explicit SourcePicker(const GraphT_ &g, const CLApp &cli)
-      : given_source_(cli.start_vertex()),
-        non_changing_(cli.random_nonchanging()), rng_(kRandSeed),
+  explicit SourcePicker(const GraphT_ &g, const NodeID given_source)
+      : given_source_(given_source), rng_(kRandSeed),
         udist_(g.num_nodes() - 1, rng_), g_(g) {}
 
   NodeID PickNext() {
     if (given_source_ != -1)
       return given_source_;
-    if (non_changing_ && last_ != -1)
-      return last_;
 
     NodeID source;
     do {
       source = udist_();
     } while (g_.out_degree(source) == 0);
-    last_ = source;
 
     return source;
   }
 
 private:
   NodeID given_source_;
-  bool non_changing_;
   std::mt19937_64 rng_;
   UniDist<NodeID, std::mt19937_64> udist_;
   const GraphT_ &g_;
-  NodeID last_ = -1;
 };
 
 // Returns k pairs with the largest values from list of key-value pairs
@@ -104,7 +98,6 @@ template <typename GraphT_, typename GraphFunc, typename AnalysisFunc,
           typename VerifierFunc>
 void BenchmarkKernel(const CLApp &cli, const GraphT_ &g, GraphFunc kernel,
                      AnalysisFunc stats, VerifierFunc verify) {
-  g.PrintStats();
   double total_seconds = 0;
   Timer trial_timer;
   for (int iter = 0; iter < cli.num_trials(); iter++) {
@@ -124,6 +117,7 @@ void BenchmarkKernel(const CLApp &cli, const GraphT_ &g, GraphFunc kernel,
     }
   }
   PrintTime("Average Time", total_seconds / cli.num_trials());
+  std::cout << std::endl;
 }
 
 #endif // BENCHMARK_H_

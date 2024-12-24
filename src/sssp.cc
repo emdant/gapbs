@@ -195,17 +195,24 @@ int main(int argc, char *argv[]) {
     return -1;
   WeightedBuilder b(cli);
   WGraph g = b.MakeGraph();
-  SourcePicker<WGraph> sp(g, cli);
-  auto SSSPBound = [&sp, &cli](const WGraph &g) {
+  g.PrintStats();
+
+  SourcePicker<WGraph> sp(g, cli.start_vertex());
+  for (auto i = 0; i < cli.num_sources(); i++) {
     auto source = sp.PickNext();
     std::cout << "Source: " << source << std::endl;
+    
+    auto SSSPBound = [&sp, &cli, source](const WGraph &g) {
+      return DeltaStep(g, source, cli.delta(), cli.logging_en());
+    };
 
-    return DeltaStep(g, source, cli.delta(), cli.logging_en());
-  };
-  SourcePicker<WGraph> vsp(g, cli);
-  auto VerifierBound = [&vsp](const WGraph &g, const pvector<WeightT> &dist) {
-    return SSSPVerifier(g, vsp.PickNext(), dist);
-  };
-  BenchmarkKernel(cli, g, SSSPBound, PrintSSSPStats, VerifierBound);
+    auto VerifierBound = [source](const WGraph &g, const pvector<WeightT> &dist) {
+      return SSSPVerifier(g, source, dist);
+    };
+
+    BenchmarkKernel(cli, g, SSSPBound, PrintSSSPStats, VerifierBound);
+  }
+
+
   return 0;
 }

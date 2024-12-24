@@ -246,17 +246,24 @@ int main(int argc, char *argv[]) {
     return -1;
   Builder b(cli);
   Graph g = b.MakeGraph();
-  SourcePicker<Graph> sp(g, cli);
-  auto BFSBound = [&sp, &cli](const Graph &g) {
+  g.PrintStats();
+
+  SourcePicker<Graph> sp(g, cli.start_vertex());
+  for (auto i = 0; i < cli.num_sources(); i++) {
     auto source = sp.PickNext();
     std::cout << "Source: " << source << std::endl;
 
-    return DOBFS(g, source, cli.logging_en());
-  };
-  SourcePicker<Graph> vsp(g, cli);
-  auto VerifierBound = [&vsp](const Graph &g, const pvector<NodeID> &parent) {
-    return BFSVerifier(g, vsp.PickNext(), parent);
-  };
-  BenchmarkKernel(cli, g, BFSBound, PrintBFSStats, VerifierBound);
+    auto BFSBound = [&sp, &cli, source](const Graph &g) {
+      return DOBFS(g, source, cli.logging_en());
+    };
+
+    auto VerifierBound = [source](const Graph &g, const pvector<NodeID> &parent) {
+      return BFSVerifier(g, source, parent);
+    };
+
+    BenchmarkKernel(cli, g, BFSBound, PrintBFSStats, VerifierBound);
+  }
+
+
   return 0;
 }
