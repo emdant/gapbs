@@ -67,6 +67,7 @@ inline void RelaxEdges(const WGraph &g, NodeID u, WeightT delta,
                        pvector<WeightT> &dist,
                        vector<vector<NodeID>> &local_bins) {
   for (WNode wn : g.out_neigh(u)) {
+    // visits++;
     WeightT old_dist = dist[wn.v];
     WeightT new_dist = dist[u] + wn.w;
     while (new_dist < old_dist) {
@@ -85,6 +86,8 @@ inline void RelaxEdges(const WGraph &g, NodeID u, WeightT delta,
 pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
                            bool logging_enabled = false) {
   Timer t;
+  // size_t total_visits = 0;
+
   pvector<WeightT> dist(g.num_nodes(), kDistInf);
   dist[source] = 0;
   pvector<NodeID> frontier(g.num_edges_directed());
@@ -95,6 +98,7 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
   t.Start();
 #pragma omp parallel
   {
+    // size_t visits = 0;
     vector<vector<NodeID>> local_bins(0);
     size_t iter = 0;
     while (shared_indexes[iter & 1] != kMaxBin) {
@@ -116,6 +120,7 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
         for (NodeID u : curr_bin_copy)
           RelaxEdges(g, u, delta, dist, local_bins);
       }
+
       for (size_t i = curr_bin_index; i < local_bins.size(); i++) {
         if (!local_bins[i].empty()) {
 #pragma omp critical
@@ -146,73 +151,75 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
 #pragma omp single
     if (logging_enabled)
       cout << "took " << iter << " iterations" << endl;
+    // cout << "Number of relaxations: " << total_visits << endl;
+
+    return dist;
   }
-  return dist;
-}
 
-void PrintSSSPStats(const WGraph &g, const pvector<WeightT> &dist) {
-  auto NotInf = [](WeightT d) { return d != kDistInf; };
-  int64_t num_reached = count_if(dist.begin(), dist.end(), NotInf);
-  cout << "SSSP Tree reaches " << num_reached << " nodes" << endl;
-}
+  void PrintSSSPStats(const WGraph &g, const pvector<WeightT> &dist) {
+    auto NotInf = [](WeightT d) { return d != kDistInf; };
+    int64_t num_reached = count_if(dist.begin(), dist.end(), NotInf);
+    cout << "SSSP Tree reaches " << num_reached << " nodes" << endl;
+  }
 
-// Compares against simple serial implementation
-bool SSSPVerifier(const WGraph &g, NodeID source,
-                  const pvector<WeightT> &dist_to_test) {
-  // Serial Dijkstra implementation to get oracle distances
-  pvector<WeightT> oracle_dist(g.num_nodes(), kDistInf);
-  oracle_dist[source] = 0;
-  typedef pair<WeightT, NodeID> WN;
-  priority_queue<WN, vector<WN>, greater<WN>> mq;
-  mq.push(make_pair(0, source));
-  while (!mq.empty()) {
-    WeightT td = mq.top().first;
-    NodeID u = mq.top().second;
-    mq.pop();
-    if (td == oracle_dist[u]) {
-      for (WNode wn : g.out_neigh(u)) {
-        if (td + wn.w < oracle_dist[wn.v]) {
-          oracle_dist[wn.v] = td + wn.w;
-          mq.push(make_pair(td + wn.w, wn.v));
+  // Compares against simple serial implementation
+  bool SSSPVerifier(const WGraph &g, NodeID source,
+                    const pvector<WeightT> &dist_to_test) {
+    // Serial Dijkstra implementation to get oracle distances
+    pvector<WeightT> oracle_dist(g.num_nodes(), kDistInf);
+    oracle_dist[source] = 0;
+    typedef pair<WeightT, NodeID> WN;
+    priority_queue<WN, vector<WN>, greater<WN>> mq;
+    mq.push(make_pair(0, source));
+    while (!mq.empty()) {
+      WeightT td = mq.top().first;
+      NodeID u = mq.top().second;
+      mq.pop();
+      if (td == oracle_dist[u]) {
+        for (WNode wn : g.out_neigh(u)) {
+          if (td + wn.w < oracle_dist[wn.v]) {
+            oracle_dist[wn.v] = td + wn.w;
+            mq.push(make_pair(td + wn.w, wn.v));
+          }
         }
       }
     }
-  }
-  // Report any mismatches
-  bool all_ok = true;
-  for (NodeID n : g.vertices()) {
-    if (dist_to_test[n] != oracle_dist[n]) {
-      cout << n << ": " << dist_to_test[n] << " != " << oracle_dist[n] << endl;
-      all_ok = false;
+    // Report any mismatches
+    bool all_ok = true;
+    for (NodeID n : g.vertices()) {
+      if (dist_to_test[n] != oracle_dist[n]) {
+        cout << n << ": " << dist_to_test[n] << " != " << oracle_dist[n]
+             << endl;
+        all_ok = false;
+      }
     }
-  }
-  return all_ok;
-}
-
-int main(int argc, char *argv[]) {
-  CLDelta<WeightT> cli(argc, argv, "single-source shortest-path");
-  if (!cli.ParseArgs())
-    return -1;
-  WeightedBuilder b(cli);
-  WGraph g = b.MakeGraph();
-  g.PrintStats();
-
-  SourcePicker<WGraph> sp(g, cli.start_vertex());
-  for (auto i = 0; i < cli.num_sources(); i++) {
-    auto source = sp.PickNext();
-    std::cout << "Source: " << source << std::endl;
-    
-    auto SSSPBound = [&sp, &cli, source](const WGraph &g) {
-      return DeltaStep(g, source, cli.delta(), cli.logging_en());
-    };
-
-    auto VerifierBound = [source](const WGraph &g, const pvector<WeightT> &dist) {
-      return SSSPVerifier(g, source, dist);
-    };
-
-    BenchmarkKernel(cli, g, SSSPBound, PrintSSSPStats, VerifierBound);
+    return all_ok;
   }
 
+  int main(int argc, char *argv[]) {
+    CLDelta<WeightT> cli(argc, argv, "single-source shortest-path");
+    if (!cli.ParseArgs())
+      return -1;
+    WeightedBuilder b(cli);
+    WGraph g = b.MakeGraph();
+    g.PrintStats();
 
-  return 0;
-}
+    SourcePicker<WGraph> sp(g, cli.start_vertex());
+    for (auto i = 0; i < cli.num_sources(); i++) {
+      auto source = sp.PickNext();
+      std::cout << "Source: " << source << std::endl;
+
+      auto SSSPBound = [&sp, &cli, source](const WGraph &g) {
+        return DeltaStep(g, source, cli.delta(), cli.logging_en());
+      };
+
+      auto VerifierBound = [source](const WGraph &g,
+                                    const pvector<WeightT> &dist) {
+        return SSSPVerifier(g, source, dist);
+      };
+
+      BenchmarkKernel(cli, g, SSSPBound, PrintSSSPStats, VerifierBound);
+    }
+
+    return 0;
+  }
