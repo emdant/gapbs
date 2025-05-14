@@ -2,6 +2,7 @@
 // See LICENSE.txt for license details
 
 #include <cinttypes>
+#include <cstddef>
 #include <iostream>
 #include <limits>
 #include <queue>
@@ -85,7 +86,7 @@ inline void RelaxEdges(const WGraph &g, NodeID u, WeightT delta,
 
 pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
                            bool logging_enabled = false) {
-  Timer t;
+  Timer t, bucket_timer;
   // size_t total_visits = 0;
 
   pvector<WeightT> dist(g.num_nodes(), kDistInf);
@@ -96,6 +97,8 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
   size_t frontier_tails[2] = {1, 0};
   frontier[0] = source;
   t.Start();
+  bucket_timer.Start();
+  // size_t frontier_e = 0;
 #pragma omp parallel
   {
     // size_t visits = 0;
@@ -106,10 +109,16 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
       size_t &next_bin_index = shared_indexes[(iter + 1) & 1];
       size_t &curr_frontier_tail = frontier_tails[iter & 1];
       size_t &next_frontier_tail = frontier_tails[(iter + 1) & 1];
+
+// #pragma omp for reduction(+ : frontier_e)
+//       for (size_t i = 0; i < curr_frontier_tail; i++) {
+//         frontier_e += g.out_degree(frontier[i]);
+//       }
 // #pragma omp master
 //       {
 //         cout << "iteration: " << iter << endl;
-//         cout << "frontier_ size: " << curr_frontier_tail << endl;
+//         cout << "frontier_v size: " << curr_frontier_tail << endl;
+//         cout << "frontier_e size: " << frontier_e << endl;
 //       }
 #pragma omp for nowait schedule(dynamic, 64)
       for (size_t i = 0; i < curr_frontier_tail; i++) {
@@ -119,7 +128,7 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
       }
       // Disable fusion
       while (curr_bin_index < local_bins.size() &&
-             !local_bins[curr_bin_index].empty() &&
+             !local_bins[curr_bin_index].empty() && //)  {
              local_bins[curr_bin_index].size() < kBinSizeThreshold) {
         vector<NodeID> curr_bin_copy = local_bins[curr_bin_index];
         local_bins[curr_bin_index].resize(0);
@@ -141,8 +150,15 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
         if (logging_enabled)
           PrintStep(curr_bin_index, t.Millisecs(), curr_frontier_tail);
         t.Start();
+        if (next_bin_index != curr_bin_index) {
+          bucket_timer.Stop();
+          cout << "bucket: " << curr_bin_index << endl;
+          cout << "bucket_time: " << bucket_timer.Seconds() << endl;
+          bucket_timer.Start();
+        }
         curr_bin_index = kMaxBin;
         curr_frontier_tail = 0;
+        // frontier_e = 0;
       }
       if (next_bin_index < local_bins.size()) {
         size_t copy_start = fetch_and_add(next_frontier_tail,
