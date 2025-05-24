@@ -3,6 +3,7 @@
 
 #include <cinttypes>
 #include <cstddef>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <queue>
@@ -63,6 +64,8 @@ using namespace std;
 const WeightT kDistInf = numeric_limits<WeightT>::max() / 2;
 const size_t kMaxBin = numeric_limits<size_t>::max() / 2;
 const size_t kBinSizeThreshold = 1000;
+std::vector<size_t> buckets_trace;
+std::vector<double> time_buckets_trace;
 
 inline void RelaxEdges(const WGraph &g, NodeID u, WeightT delta,
                        pvector<WeightT> &dist,
@@ -152,8 +155,8 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
         t.Start();
         if (next_bin_index != curr_bin_index) {
           bucket_timer.Stop();
-          cout << "bucket: " << curr_bin_index << endl;
-          cout << "bucket_time: " << bucket_timer.Seconds() << endl;
+          buckets_trace.push_back(curr_bin_index);
+          time_buckets_trace.push_back(bucket_timer.Seconds());
           bucket_timer.Start();
         }
         curr_bin_index = kMaxBin;
@@ -183,6 +186,13 @@ void PrintSSSPStats(const WGraph &g, const pvector<WeightT> &dist) {
   auto NotInf = [](WeightT d) { return d != kDistInf; };
   int64_t num_reached = count_if(dist.begin(), dist.end(), NotInf);
   cout << "SSSP Tree reaches " << num_reached << " nodes" << endl;
+
+  for (size_t i = 0; i < buckets_trace.size(); i++) {
+    cout << "bucket: " << buckets_trace[i] << endl;
+    cout << "time_bucket: "
+         << std::setprecision(std::numeric_limits<double>::max_digits10)
+         << time_buckets_trace[i] << endl;
+  }
 }
 
 // Compares against simple serial implementation
@@ -232,6 +242,8 @@ int main(int argc, char *argv[]) {
     std::cout << "Source: " << source << std::endl;
 
     auto SSSPBound = [&sp, &cli, source](const WGraph &g) {
+      buckets_trace.clear();
+      time_buckets_trace.clear();
       return DeltaStep(g, source, cli.delta(), cli.logging_en());
     };
 
