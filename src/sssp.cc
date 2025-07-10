@@ -65,9 +65,16 @@ const size_t kBinSizeThreshold = 1000;
 
 inline void RelaxEdges(const WGraph &g, NodeID u, WeightT delta,
                        pvector<WeightT> &dist,
-                       vector<vector<NodeID>> &local_bins) {
+                       vector<vector<NodeID>> &local_bins
+#ifdef COUNT_RELAX
+                       ,
+                       size_t &visits
+#endif
+) {
   for (WNode wn : g.out_neigh(u)) {
-    // visits++;
+#ifdef COUNT_RELAX
+    visits++;
+#endif
     WeightT old_dist = dist[wn.v];
     WeightT new_dist = dist[u] + wn.w;
     while (new_dist < old_dist) {
@@ -86,8 +93,9 @@ inline void RelaxEdges(const WGraph &g, NodeID u, WeightT delta,
 pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
                            bool logging_enabled = false) {
   Timer t;
-  // size_t total_visits = 0;
-
+#ifdef COUNT_RELAX
+  size_t total_visits = 0;
+#endif
   pvector<WeightT> dist(g.num_nodes(), kDistInf);
   dist[source] = 0;
   pvector<NodeID> frontier(g.num_edges_directed());
@@ -98,7 +106,9 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
   t.Start();
 #pragma omp parallel
   {
-    // size_t visits = 0;
+#ifdef COUNT_RELAX
+    size_t visits = 0;
+#endif
     vector<vector<NodeID>> local_bins(0);
     size_t iter = 0;
     while (shared_indexes[iter & 1] != kMaxBin) {
@@ -115,16 +125,25 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
       for (size_t i = 0; i < curr_frontier_tail; i++) {
         NodeID u = frontier[i];
         if (dist[u] >= delta * static_cast<WeightT>(curr_bin_index))
-          RelaxEdges(g, u, delta, dist, local_bins);
+          RelaxEdges(g, u, delta, dist, local_bins
+#ifdef COUNT_RELAX
+                     ,
+                     visits
+#endif
+          );
       }
-      // Disable fusion
       while (curr_bin_index < local_bins.size() &&
              !local_bins[curr_bin_index].empty() &&
              local_bins[curr_bin_index].size() < kBinSizeThreshold) {
         vector<NodeID> curr_bin_copy = local_bins[curr_bin_index];
         local_bins[curr_bin_index].resize(0);
         for (NodeID u : curr_bin_copy)
-          RelaxEdges(g, u, delta, dist, local_bins);
+          RelaxEdges(g, u, delta, dist, local_bins
+#ifdef COUNT_RELAX
+                     ,
+                     visits
+#endif
+          );
       }
 
       for (size_t i = curr_bin_index; i < local_bins.size(); i++) {
@@ -154,12 +173,17 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
       iter++;
 #pragma omp barrier
     }
+#ifdef COUNT_RELAX
+#pragma omp atomic
+    total_visits += visits;
+#endif
 #pragma omp single
     if (logging_enabled)
       cout << "took " << iter << " iterations" << endl;
   }
-  // cout << "Number of relaxations: " << total_visits << endl;
-
+#ifdef COUNT_RELAX
+  cout << "Number of relaxations: " << total_visits << endl;
+#endif
   return dist;
 }
 

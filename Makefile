@@ -25,6 +25,9 @@ all: $(SUITE)
 % : src/%.cc src/*.h
 	$(CXX) $(CXX_FLAGS) $< -o $@
 
+sssp-crelax: src/sssp.cc src/*.h
+	$(CXX) $(CXX_FLAGS) -DCOUNT_RELAX $< -o $@
+
 # Testing
 include test/test.mk
 
