@@ -11,6 +11,7 @@
 #include "builder.h"
 #include "command_line.h"
 #include "graph.h"
+#include "omp.h"
 #include "platform_atomics.h"
 #include "pvector.h"
 #include "timer.h"
@@ -96,6 +97,12 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
 #ifdef COUNT_RELAX
   size_t total_visits = 0;
 #endif
+#ifdef COUNT_TIME
+  double total_current_bucket_time = 0;
+  double total_bucket_fusion_time = 0;
+  double total_copy_time = 0;
+  double total_barriers_time = 0;
+#endif
   pvector<WeightT> dist(g.num_nodes(), kDistInf);
   dist[source] = 0;
   pvector<NodeID> frontier(g.num_edges_directed());
@@ -109,6 +116,9 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
 #ifdef COUNT_RELAX
     size_t visits = 0;
 #endif
+#ifdef COUNT_TIME
+    CumulativeTimer cb_t, bf_t, cp_t, bs_t;
+#endif
     vector<vector<NodeID>> local_bins(0);
     size_t iter = 0;
     while (shared_indexes[iter & 1] != kMaxBin) {
@@ -116,11 +126,9 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
       size_t &next_bin_index = shared_indexes[(iter + 1) & 1];
       size_t &curr_frontier_tail = frontier_tails[iter & 1];
       size_t &next_frontier_tail = frontier_tails[(iter + 1) & 1];
-// #pragma omp master
-//       {
-//         cout << "iteration: " << iter << endl;
-//         cout << "frontier_ size: " << curr_frontier_tail << endl;
-//       }
+#ifdef COUNT_TIME
+      cb_t.Start();
+#endif
 #pragma omp for nowait schedule(dynamic, 64)
       for (size_t i = 0; i < curr_frontier_tail; i++) {
         NodeID u = frontier[i];
@@ -132,6 +140,11 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
 #endif
           );
       }
+#ifdef COUNT_TIME
+      cb_t.Stop();
+      bf_t.Start();
+#endif
+
       while (curr_bin_index < local_bins.size() &&
              !local_bins[curr_bin_index].empty() &&
              local_bins[curr_bin_index].size() < kBinSizeThreshold) {
@@ -145,6 +158,10 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
 #endif
           );
       }
+#ifdef COUNT_TIME
+      bf_t.Stop();
+      bs_t.Start();
+#endif
 
       for (size_t i = curr_bin_index; i < local_bins.size(); i++) {
         if (!local_bins[i].empty()) {
@@ -154,6 +171,10 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
         }
       }
 #pragma omp barrier
+#ifdef COUNT_TIME
+      bs_t.Stop();
+      cp_t.Start();
+#endif
 #pragma omp single nowait
       {
         t.Stop();
@@ -171,11 +192,34 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
         local_bins[next_bin_index].resize(0);
       }
       iter++;
+#ifdef COUNT_TIME
+      cp_t.Stop();
+      bs_t.Start();
+#endif
+
 #pragma omp barrier
-    }
+
+#ifdef COUNT_TIME
+      bs_t.Stop();
+#endif
+    } //////////////////// end while : sssp finished
 #ifdef COUNT_RELAX
 #pragma omp atomic
     total_visits += visits;
+#endif
+#ifdef COUNT_TIME
+    double current_bucket_time = cb_t.Seconds();
+    double bucket_fusion_time = bf_t.Seconds();
+    double copy_time = cp_t.Seconds();
+    double barriers_time = bs_t.Seconds();
+#pragma omp critical
+    {
+      total_current_bucket_time += current_bucket_time;
+      total_bucket_fusion_time += bucket_fusion_time;
+      total_copy_time += copy_time;
+      total_barriers_time += barriers_time;
+    }
+
 #endif
 #pragma omp single
     if (logging_enabled)
@@ -183,6 +227,19 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
   }
 #ifdef COUNT_RELAX
   cout << "Number of relaxations: " << total_visits << endl;
+#endif
+#ifdef COUNT_TIME
+  total_current_bucket_time = total_current_bucket_time / omp_get_max_threads();
+  total_bucket_fusion_time = total_bucket_fusion_time / omp_get_max_threads();
+  total_copy_time = total_copy_time / omp_get_max_threads();
+  total_barriers_time = total_barriers_time / omp_get_max_threads();
+
+  cout << "current_bucket time: " << total_current_bucket_time << " seconds"
+       << endl;
+  cout << "bucket_fusion time: " << total_bucket_fusion_time << " seconds"
+       << endl;
+  cout << "copy_buckets time: " << total_copy_time << " seconds" << endl;
+  cout << "barriers time: " << total_barriers_time << " seconds" << endl;
 #endif
   return dist;
 }

@@ -7,7 +7,7 @@ pr
 pr_spmv
 sssp
 tc
-sssp-crelax
+sssp-c*
 
 test/out/*.out
 

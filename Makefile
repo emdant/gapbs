@@ -28,6 +28,9 @@ all: $(SUITE)
 sssp-crelax: src/sssp.cc src/*.h
 	$(CXX) $(CXX_FLAGS) -DCOUNT_RELAX $< -o $@
 
+sssp-ctime: src/sssp.cc src/*.h
+	$(CXX) $(CXX_FLAGS) -DCOUNT_TIME $< -o $@
+
 # Testing
 include test/test.mk
 
