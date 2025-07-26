@@ -174,7 +174,7 @@ class Generator {
     #pragma omp parallel
     {
       rng_t_ rng;
-      UniDist<WeightT_, rng_t_> udist(254, rng);
+      UniDist<NodeID_, rng_t_> udist(254, rng);
       int64_t el_size = el.size();
       #pragma omp for
       for (int64_t block=0; block < el_size; block+=block_size) {

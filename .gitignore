@@ -7,7 +7,7 @@ pr
 pr_spmv
 sssp
 tc
-sssp-c*
+sssp-*
 
 test/out/*.out
 

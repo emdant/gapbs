@@ -16,15 +16,23 @@ ifneq ($(SERIAL), 1)
 	CXX_FLAGS += $(PAR_FLAG)
 endif
 
-KERNELS = bc bfs cc cc_sv pr pr_spmv sssp tc
-SUITE = $(KERNELS) converter
+KERNELS = bc bfs cc cc_sv pr pr_spmv tc
+SUITE = $(KERNELS) converter sssp-int32 sssp-float sssp-crelax sssp-ctime
 
-.PHONY: all
+.PHONY: all sssp
 all: $(SUITE)
 
 % : src/%.cc src/*.h
-	$(CXX) $(CXX_FLAGS) $< -o $@
+	$(CXX) $(CXX_FLAGS) -DUSE_INT32 $< -o $@
 
+sssp: sssp-int32 sssp-float
+
+sssp-int32: src/sssp.cc src/*.h
+	$(CXX) $(CXX_FLAGS) -DUSE_INT32 $< -o $@
+
+sssp-float: src/sssp.cc src/*.h
+	$(CXX) $(CXX_FLAGS) -DUSE_FLOAT $< -o $@
+	
 sssp-crelax: src/sssp.cc src/*.h
 	$(CXX) $(CXX_FLAGS) -DCOUNT_RELAX $< -o $@
 
