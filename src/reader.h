@@ -265,10 +265,10 @@ class Reader {
       std::cout << ".wsg only allowed for weighted graphs" << std::endl;
       std::exit(-5);
     }
-    if (weighted && !std::is_same<WeightT_, SGID>::value) {
-      std::cout << ".wsg only allowed for int32_t weights" << std::endl;
-      std::exit(-5);
-    }
+    // if (weighted && !std::is_same<WeightT_, SGID>::value) {
+    //   std::cout << ".wsg only allowed for int32_t weights" << std::endl;
+    //   std::exit(-5);
+    // }
     std::ifstream file(filename_);
     if (!file.is_open()) {
       std::cout << "Couldn't open file " << filename_ << std::endl;
