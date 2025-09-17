@@ -10,6 +10,7 @@
 #include <string>
 #include <type_traits>
 
+#include "graph.h"
 #include "pvector.h"
 #include "util.h"
 
@@ -263,10 +264,6 @@ class Reader {
     }
     if (weighted && std::is_same<NodeID_, DestID_>::value) {
       std::cout << ".wsg only allowed for weighted graphs" << std::endl;
-      std::exit(-5);
-    }
-    if (weighted && !std::is_same<WeightT_, SGID>::value) {
-      std::cout << ".wsg only allowed for int32_t weights" << std::endl;
       std::exit(-5);
     }
     std::ifstream file(filename_);

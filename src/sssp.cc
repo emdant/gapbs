@@ -2,8 +2,8 @@
 // See LICENSE.txt for license details
 
 #include <cinttypes>
-#include <limits>
 #include <iostream>
+#include <limits>
 #include <queue>
 #include <vector>
 
@@ -11,10 +11,10 @@
 #include "builder.h"
 #include "command_line.h"
 #include "graph.h"
+#include "omp.h"
 #include "platform_atomics.h"
 #include "pvector.h"
 #include "timer.h"
-
 
 /*
 GAP Benchmark Suite
@@ -54,32 +54,39 @@ execution order, leading to significant speedup on large diameter road networks.
 
 [2] Yunming Zhang, Ajay Brahmakshatriya, Xinyi Chen, Laxman Dhulipala,
     Shoaib Kamil, Saman Amarasinghe, and Julian Shun. "Optimizing ordered graph
-    algorithms with GraphIt." The 18th International Symposium on Code Generation
-    and Optimization (CGO), pages 158-170, 2020.
+    algorithms with GraphIt." The 18th International Symposium on Code
+Generation and Optimization (CGO), pages 158-170, 2020.
 */
-
 
 using namespace std;
 
-const WeightT kDistInf = numeric_limits<WeightT>::max()/2;
-const size_t kMaxBin = numeric_limits<size_t>::max()/2;
+const WeightT kDistInf = numeric_limits<WeightT>::max() / 2;
+const size_t kMaxBin = numeric_limits<size_t>::max() / 2;
 const size_t kBinSizeThreshold = 1000;
 
-inline
-void RelaxEdges(const WGraph &g, NodeID u, WeightT delta,
-                pvector<WeightT> &dist, vector <vector<NodeID>> &local_bins) {
+inline void RelaxEdges(const WGraph &g, NodeID u, WeightT delta,
+                       pvector<WeightT> &dist,
+                       vector<vector<NodeID>> &local_bins
+#ifdef COUNT_RELAX
+                       ,
+                       size_t &visits
+#endif
+) {
   for (WNode wn : g.out_neigh(u)) {
+#ifdef COUNT_RELAX
+    visits++;
+#endif
     WeightT old_dist = dist[wn.v];
     WeightT new_dist = dist[u] + wn.w;
     while (new_dist < old_dist) {
       if (compare_and_swap(dist[wn.v], old_dist, new_dist)) {
-        size_t dest_bin = new_dist/delta;
+        size_t dest_bin = new_dist / delta;
         if (dest_bin >= local_bins.size())
-          local_bins.resize(dest_bin+1);
+          local_bins.resize(dest_bin + 1);
         local_bins[dest_bin].push_back(wn.v);
         break;
       }
-      old_dist = dist[wn.v];      // swap failed, recheck dist update & retry
+      old_dist = dist[wn.v]; // swap failed, recheck dist update & retry
     }
   }
 }
@@ -87,6 +94,15 @@ void RelaxEdges(const WGraph &g, NodeID u, WeightT delta,
 pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
                            bool logging_enabled = false) {
   Timer t;
+#ifdef COUNT_RELAX
+  size_t total_visits = 0;
+#endif
+#ifdef COUNT_TIME
+  double total_current_bucket_time = 0;
+  double total_bucket_fusion_time = 0;
+  double total_copy_time = 0;
+  double total_barriers_time = 0;
+#endif
   pvector<WeightT> dist(g.num_nodes(), kDistInf);
   dist[source] = 0;
   pvector<NodeID> frontier(g.num_edges_directed());
@@ -95,38 +111,71 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
   size_t frontier_tails[2] = {1, 0};
   frontier[0] = source;
   t.Start();
-  #pragma omp parallel
+#pragma omp parallel
   {
-    vector<vector<NodeID> > local_bins(0);
+#ifdef COUNT_RELAX
+    size_t visits = 0;
+#endif
+#ifdef COUNT_TIME
+    CumulativeTimer cb_t, bf_t, cp_t, bs_t;
+#endif
+    vector<vector<NodeID>> local_bins(0);
     size_t iter = 0;
-    while (shared_indexes[iter&1] != kMaxBin) {
-      size_t &curr_bin_index = shared_indexes[iter&1];
-      size_t &next_bin_index = shared_indexes[(iter+1)&1];
-      size_t &curr_frontier_tail = frontier_tails[iter&1];
-      size_t &next_frontier_tail = frontier_tails[(iter+1)&1];
-      #pragma omp for nowait schedule(dynamic, 64)
-      for (size_t i=0; i < curr_frontier_tail; i++) {
+    while (shared_indexes[iter & 1] != kMaxBin) {
+      size_t &curr_bin_index = shared_indexes[iter & 1];
+      size_t &next_bin_index = shared_indexes[(iter + 1) & 1];
+      size_t &curr_frontier_tail = frontier_tails[iter & 1];
+      size_t &next_frontier_tail = frontier_tails[(iter + 1) & 1];
+#ifdef COUNT_TIME
+      cb_t.Start();
+#endif
+#pragma omp for nowait schedule(dynamic, 64)
+      for (size_t i = 0; i < curr_frontier_tail; i++) {
         NodeID u = frontier[i];
         if (dist[u] >= delta * static_cast<WeightT>(curr_bin_index))
-          RelaxEdges(g, u, delta, dist, local_bins);
+          RelaxEdges(g, u, delta, dist, local_bins
+#ifdef COUNT_RELAX
+                     ,
+                     visits
+#endif
+          );
       }
+#ifdef COUNT_TIME
+      cb_t.Stop();
+      bf_t.Start();
+#endif
+
       while (curr_bin_index < local_bins.size() &&
              !local_bins[curr_bin_index].empty() &&
              local_bins[curr_bin_index].size() < kBinSizeThreshold) {
         vector<NodeID> curr_bin_copy = local_bins[curr_bin_index];
         local_bins[curr_bin_index].resize(0);
         for (NodeID u : curr_bin_copy)
-          RelaxEdges(g, u, delta, dist, local_bins);
+          RelaxEdges(g, u, delta, dist, local_bins
+#ifdef COUNT_RELAX
+                     ,
+                     visits
+#endif
+          );
       }
-      for (size_t i=curr_bin_index; i < local_bins.size(); i++) {
+#ifdef COUNT_TIME
+      bf_t.Stop();
+      bs_t.Start();
+#endif
+
+      for (size_t i = curr_bin_index; i < local_bins.size(); i++) {
         if (!local_bins[i].empty()) {
-          #pragma omp critical
+#pragma omp critical
           next_bin_index = min(next_bin_index, i);
           break;
         }
       }
-      #pragma omp barrier
-      #pragma omp single nowait
+#pragma omp barrier
+#ifdef COUNT_TIME
+      bs_t.Stop();
+      cp_t.Start();
+#endif
+#pragma omp single nowait
       {
         t.Stop();
         if (logging_enabled)
@@ -143,22 +192,63 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
         local_bins[next_bin_index].resize(0);
       }
       iter++;
-      #pragma omp barrier
+#ifdef COUNT_TIME
+      cp_t.Stop();
+      bs_t.Start();
+#endif
+
+#pragma omp barrier
+
+#ifdef COUNT_TIME
+      bs_t.Stop();
+#endif
+    } //////////////////// end while : sssp finished
+#ifdef COUNT_RELAX
+#pragma omp atomic
+    total_visits += visits;
+#endif
+#ifdef COUNT_TIME
+    double current_bucket_time = cb_t.Seconds();
+    double bucket_fusion_time = bf_t.Seconds();
+    double copy_time = cp_t.Seconds();
+    double barriers_time = bs_t.Seconds();
+#pragma omp critical
+    {
+      total_current_bucket_time += current_bucket_time;
+      total_bucket_fusion_time += bucket_fusion_time;
+      total_copy_time += copy_time;
+      total_barriers_time += barriers_time;
     }
-    #pragma omp single
+
+#endif
+#pragma omp single
     if (logging_enabled)
       cout << "took " << iter << " iterations" << endl;
   }
+#ifdef COUNT_RELAX
+  cout << "Number of relaxations: " << total_visits << endl;
+#endif
+#ifdef COUNT_TIME
+  total_current_bucket_time = total_current_bucket_time / omp_get_max_threads();
+  total_bucket_fusion_time = total_bucket_fusion_time / omp_get_max_threads();
+  total_copy_time = total_copy_time / omp_get_max_threads();
+  total_barriers_time = total_barriers_time / omp_get_max_threads();
+
+  cout << "current_bucket time: " << total_current_bucket_time << " seconds"
+       << endl;
+  cout << "bucket_fusion time: " << total_bucket_fusion_time << " seconds"
+       << endl;
+  cout << "copy_buckets time: " << total_copy_time << " seconds" << endl;
+  cout << "barriers time: " << total_barriers_time << " seconds" << endl;
+#endif
   return dist;
 }
-
 
 void PrintSSSPStats(const WGraph &g, const pvector<WeightT> &dist) {
   auto NotInf = [](WeightT d) { return d != kDistInf; };
   int64_t num_reached = count_if(dist.begin(), dist.end(), NotInf);
   cout << "SSSP Tree reaches " << num_reached << " nodes" << endl;
 }
-
 
 // Compares against simple serial implementation
 bool SSSPVerifier(const WGraph &g, NodeID source,
@@ -193,21 +283,30 @@ bool SSSPVerifier(const WGraph &g, NodeID source,
   return all_ok;
 }
 
-
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
   CLDelta<WeightT> cli(argc, argv, "single-source shortest-path");
   if (!cli.ParseArgs())
     return -1;
   WeightedBuilder b(cli);
   WGraph g = b.MakeGraph();
+  g.PrintStats();
+
   SourcePicker<WGraph> sp(g, cli.start_vertex());
-  auto SSSPBound = [&sp, &cli] (const WGraph &g) {
-    return DeltaStep(g, sp.PickNext(), cli.delta(), cli.logging_en());
-  };
-  SourcePicker<WGraph> vsp(g, cli.start_vertex());
-  auto VerifierBound = [&vsp] (const WGraph &g, const pvector<WeightT> &dist) {
-    return SSSPVerifier(g, vsp.PickNext(), dist);
-  };
-  BenchmarkKernel(cli, g, SSSPBound, PrintSSSPStats, VerifierBound);
+  for (auto i = 0; i < cli.num_sources(); i++) {
+    auto source = sp.PickNext();
+    std::cout << "Source: " << source << std::endl;
+
+    auto SSSPBound = [&sp, &cli, source](const WGraph &g) {
+      return DeltaStep(g, source, cli.delta(), cli.logging_en());
+    };
+
+    auto VerifierBound = [source](const WGraph &g,
+                                  const pvector<WeightT> &dist) {
+      return SSSPVerifier(g, source, dist);
+    };
+
+    BenchmarkKernel(cli, g, SSSPBound, PrintSSSPStats, VerifierBound);
+  }
+
   return 0;
 }
