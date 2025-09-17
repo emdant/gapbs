@@ -128,18 +128,20 @@ class CLApp : public CLBase {
   int64_t start_vertex_ = -1;
   bool do_verify_ = false;
   bool enable_logging_ = false;
-    int num_sources_ = 1;
-
+  int num_sources_ = 1;
+  std::string sources_filename_ = "";
 
 public:
   CLApp(int argc, char **argv, std::string name) : CLBase(argc, argv, name) {
-    get_args_ += "an:r:S:vl";
+    get_args_ += "an:r:S:vlz:";
     AddHelpLine('a', "", "output analysis of last run", "false");
     AddHelpLine('n', "n", "perform n trials", std::to_string(num_trials_));
     AddHelpLine('r', "node", "start from node r", "rand");
-    AddHelpLine('S', "sources", "number of source vertices", std::to_string(num_sources_));
+    AddHelpLine('S', "sources", "number of source vertices",
+                std::to_string(num_sources_));
     AddHelpLine('v', "", "verify the output of each run", "false");
     AddHelpLine('l', "", "log performance within each trial", "false");
+    AddHelpLine('z', "file", "read sources from file");
   }
 
   void HandleArg(signed char opt, char *opt_arg) override {
@@ -162,6 +164,9 @@ public:
     case 'S':
       num_sources_ = atoi(opt_arg);
       break;
+    case 'z':
+      sources_filename_ = std::string(opt_arg);
+      break;
     default:
       CLBase::HandleArg(opt, opt_arg);
     }
@@ -173,6 +178,7 @@ public:
   bool do_verify() const { return do_verify_; }
   bool logging_en() const { return enable_logging_; }
   int num_sources() const { return num_sources_; }
+  std::string sources_filename() const { return sources_filename_; }
 };
 
 class CLIterApp : public CLApp {

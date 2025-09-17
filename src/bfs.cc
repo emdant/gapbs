@@ -248,7 +248,7 @@ int main(int argc, char *argv[]) {
   Graph g = b.MakeGraph();
   g.PrintStats();
 
-  SourcePicker<Graph> sp(g, cli.start_vertex());
+  SourcePicker<Graph> sp(g, cli.sources_filename(), cli.start_vertex());
   for (auto i = 0; i < cli.num_sources(); i++) {
     auto source = sp.PickNext();
     std::cout << "Source: " << source << std::endl;
@@ -257,13 +257,13 @@ int main(int argc, char *argv[]) {
       return DOBFS(g, source, cli.logging_en());
     };
 
-    auto VerifierBound = [source](const Graph &g, const pvector<NodeID> &parent) {
+    auto VerifierBound = [source](const Graph &g,
+                                  const pvector<NodeID> &parent) {
       return BFSVerifier(g, source, parent);
     };
 
     BenchmarkKernel(cli, g, BFSBound, PrintBFSStats, VerifierBound);
   }
-
 
   return 0;
 }
