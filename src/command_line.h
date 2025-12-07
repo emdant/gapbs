@@ -130,10 +130,11 @@ class CLApp : public CLBase {
   bool enable_logging_ = false;
   int num_sources_ = 1;
   std::string sources_filename_ = "";
+  std::string weights_filename_ = "";
 
 public:
   CLApp(int argc, char **argv, std::string name) : CLBase(argc, argv, name) {
-    get_args_ += "an:r:S:vlz:";
+    get_args_ += "an:r:S:vlz:w:";
     AddHelpLine('a', "", "output analysis of last run", "false");
     AddHelpLine('n', "n", "perform n trials", std::to_string(num_trials_));
     AddHelpLine('r', "node", "start from node r", "rand");
@@ -142,6 +143,7 @@ public:
     AddHelpLine('v', "", "verify the output of each run", "false");
     AddHelpLine('l', "", "log performance within each trial", "false");
     AddHelpLine('z', "file", "read sources from file");
+    AddHelpLine('w', "file", "read weights from file");
   }
 
   void HandleArg(signed char opt, char *opt_arg) override {
@@ -167,6 +169,9 @@ public:
     case 'z':
       sources_filename_ = std::string(opt_arg);
       break;
+    case 'w':
+      weights_filename_ = std::string(opt_arg);
+      break;
     default:
       CLBase::HandleArg(opt, opt_arg);
     }
@@ -179,6 +184,7 @@ public:
   bool logging_en() const { return enable_logging_; }
   int num_sources() const { return num_sources_; }
   std::string sources_filename() const { return sources_filename_; }
+  std::string weights_filename() const { return weights_filename_; }
 };
 
 class CLIterApp : public CLApp {

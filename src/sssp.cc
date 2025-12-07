@@ -301,6 +301,12 @@ int main(int argc, char *argv[]) {
   WGraph g = b.MakeGraph();
   g.PrintStats();
 
+  if (cli.weights_filename() != "") {
+    VectorReader<WeightT> reader(cli.weights_filename());
+    auto weights = reader.ReadSerialized();
+    g.ReplaceWeights(weights);
+  }
+
   SourcePicker<WGraph> sp(g, cli.sources_filename(), cli.start_vertex());
   for (auto i = 0; i < cli.num_sources(); i++) {
     auto source = sp.PickNext();

@@ -332,7 +332,7 @@ public:
     file.close();
 
     t.Stop();
-    PrintTime("Values Read Time", t.Seconds());
+    PrintTime("Values Read Time ", t.Seconds());
 
     return sources;
   }
@@ -356,7 +356,7 @@ public:
     file.close();
 
     t.Stop();
-    PrintTime("Serialized Values Read Time", t.Seconds());
+    PrintTime("Serialized Values Read Time ", t.Seconds());
 
     return values;
   }
