@@ -2,6 +2,7 @@
 // See LICENSE.txt for license details
 
 #include <cinttypes>
+#include <cstddef>
 #include <iostream>
 #include <limits>
 #include <queue>
@@ -106,6 +107,7 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
   pvector<WeightT> dist(g.num_nodes(), kDistInf);
   dist[source] = 0;
   pvector<NodeID> frontier(g.num_edges_directed());
+  // std::vector<std::size_t> frontier_size;
   // two element arrays for double buffering curr=iter&1, next=(iter+1)&1
   size_t shared_indexes[2] = {0, kMaxBin};
   size_t frontier_tails[2] = {1, 0};
@@ -129,6 +131,10 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
 #ifdef COUNT_TIME
       cb_t.Start();
 #endif
+// #pragma omp single nowait
+//       {
+//         frontier_size.push_back(curr_frontier_tail);
+//       }
 #pragma omp for nowait schedule(dynamic, 64)
       for (size_t i = 0; i < curr_frontier_tail; i++) {
         NodeID u = frontier[i];
@@ -241,6 +247,12 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
   cout << "copy_buckets time: " << total_copy_time << " seconds" << endl;
   cout << "barriers time: " << total_barriers_time << " seconds" << endl;
 #endif
+
+  // cout << "iteration,size" << endl;
+  // for (std::size_t i = 0; i < frontier_size.size(); i++) {
+  //   cout << i + 1 << "," << frontier_size[i] << endl;
+  // }
+  // cout << endl;
   return dist;
 }
 
