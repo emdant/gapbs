@@ -11,6 +11,7 @@
 #include "benchmark.h"
 #include "builder.h"
 #include "command_line.h"
+#include "delta_from_c.h"
 #include "graph.h"
 #include "omp.h"
 #include "platform_atomics.h"
@@ -320,12 +321,21 @@ int main(int argc, char *argv[]) {
   }
 
   SourcePicker<WGraph> sp(g, cli.sources_filename(), cli.start_vertex());
+
+  DeltaSelector<WeightT> delta_selector(cli.delta(), cli.delta_c(),
+                                        cli.use_delta_c(),
+                                        cli.delta_outside_timer());
+  delta_selector.Warmup(g); // no-op unless -O
+
   for (auto i = 0; i < cli.num_sources(); i++) {
     auto source = sp.PickNext();
     std::cout << "Source: " << source << std::endl;
 
-    auto SSSPBound = [&sp, &cli, source](const WGraph &g) {
-      return DeltaStep(g, source, cli.delta(), cli.logging_en());
+    auto SSSPBound = [&cli, &delta_selector, source](const WGraph &g) {
+      // Inside the timed region, before any data structure is built: see
+      // src/delta_from_c.h for how to move this out of the timer.
+      const WeightT delta = delta_selector.Get(g);
+      return DeltaStep(g, source, delta, cli.logging_en());
     };
 
     auto VerifierBound = [source](const WGraph &g,
@@ -334,6 +344,7 @@ int main(int argc, char *argv[]) {
     };
 
     BenchmarkKernel(cli, g, SSSPBound, PrintSSSPStats, VerifierBound);
+    delta_selector.PrintLast();
   }
 
   return 0;

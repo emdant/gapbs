@@ -243,11 +243,16 @@ public:
 
 template <typename WeightT_> class CLDelta : public CLApp {
   WeightT_ delta_ = 1;
+  double delta_c_ = 0.0;
+  bool use_delta_c_ = false;
+  bool delta_outside_timer_ = false;
 
 public:
   CLDelta(int argc, char **argv, std::string name) : CLApp(argc, argv, name) {
-    get_args_ += "d:";
+    get_args_ += "d:C:O";
     AddHelpLine('d', "d", "delta parameter", std::to_string(delta_));
+    AddHelpLine('C', "c", "derive delta as c*mean_edge_weight/average_degree");
+    AddHelpLine('O', "", "compute the derived delta outside the timer", "false");
   }
 
   void HandleArg(signed char opt, char *opt_arg) override {
@@ -258,12 +263,22 @@ public:
       else
         delta_ = static_cast<WeightT_>(atol(opt_arg));
       break;
+    case 'C':
+      delta_c_ = atof(opt_arg);
+      use_delta_c_ = true;
+      break;
+    case 'O':
+      delta_outside_timer_ = true;
+      break;
     default:
       CLApp::HandleArg(opt, opt_arg);
     }
   }
 
   WeightT_ delta() const { return delta_; }
+  double delta_c() const { return delta_c_; }
+  bool use_delta_c() const { return use_delta_c_; }
+  bool delta_outside_timer() const { return delta_outside_timer_; }
 };
 
 class CLConvert : public CLBase {
