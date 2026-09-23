@@ -109,15 +109,17 @@ bool VerifyUnimplemented(...) {
 }
 
 // Calls (and times) kernel according to command line arguments
-template <typename GraphT_, typename GraphFunc, typename AnalysisFunc,
-          typename VerifierFunc>
-void BenchmarkKernel(const CLApp &cli, const GraphT_ &g, GraphFunc kernel,
-                     AnalysisFunc stats, VerifierFunc verify) {
+template <typename GraphT_, typename InitFunc, typename GraphFunc,
+          typename AnalysisFunc, typename VerifierFunc>
+void BenchmarkKernel(const CLApp &cli, const GraphT_ &g, InitFunc init,
+                     GraphFunc kernel, AnalysisFunc stats,
+                     VerifierFunc verify) {
   double total_seconds = 0;
   Timer trial_timer;
   for (int iter = 0; iter < cli.num_trials(); iter++) {
+    init();
     trial_timer.Start();
-    auto result = kernel(g);
+    auto &&result = kernel(g);
     trial_timer.Stop();
     PrintTime("Trial Time", trial_timer.Seconds());
     total_seconds += trial_timer.Seconds();

@@ -93,8 +93,9 @@ inline void RelaxEdges(const WGraph &g, NodeID u, WeightT delta,
   }
 }
 
-pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
-                           bool logging_enabled = false) {
+pvector<WeightT> &DeltaStep(const WGraph &g, pvector<WeightT> &dist,
+                            NodeID source, WeightT delta,
+                            bool logging_enabled = false) {
   Timer t;
 #ifdef COUNT_RELAX
   size_t total_visits = 0;
@@ -105,7 +106,6 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
   double total_copy_time = 0;
   double total_barriers_time = 0;
 #endif
-  pvector<WeightT> dist(g.num_nodes(), kDistInf);
   dist[source] = 0;
   pvector<NodeID> frontier(g.num_edges_directed());
   // std::vector<std::size_t> frontier_size;
@@ -313,6 +313,8 @@ int main(int argc, char *argv[]) {
   WeightedBuilder b(cli);
   WGraph g = b.MakeGraph();
   g.PrintStats();
+  pvector<WeightT> dist(g.num_nodes());
+  auto InitWrapper = [&]() { dist.fill(kDistInf); };
 
   if (cli.weights_filename() != "") {
     VectorReader<WeightT> reader(cli.weights_filename());
@@ -322,20 +324,20 @@ int main(int argc, char *argv[]) {
 
   SourcePicker<WGraph> sp(g, cli.sources_filename(), cli.start_vertex());
 
-  DeltaSelector<WeightT> delta_selector(cli.delta(), cli.delta_c(),
-                                        cli.use_delta_c(),
-                                        cli.delta_outside_timer());
+  DeltaSelector<WeightT> delta_selector(
+      cli.delta(), cli.delta_c(), cli.use_delta_c(), cli.delta_outside_timer());
   delta_selector.Warmup(g); // no-op unless -O
 
   for (auto i = 0; i < cli.num_sources(); i++) {
     auto source = sp.PickNext();
     std::cout << "Source: " << source << std::endl;
 
-    auto SSSPBound = [&cli, &delta_selector, source](const WGraph &g) {
+    auto SSSPBound = [&cli, &dist, &delta_selector,
+                      source](const WGraph &g) -> pvector<WeightT> & {
       // Inside the timed region, before any data structure is built: see
       // src/delta_from_c.h for how to move this out of the timer.
       const WeightT delta = delta_selector.Get(g);
-      return DeltaStep(g, source, delta, cli.logging_en());
+      return DeltaStep(g, dist, source, delta, cli.logging_en());
     };
 
     auto VerifierBound = [source](const WGraph &g,
@@ -343,7 +345,8 @@ int main(int argc, char *argv[]) {
       return SSSPVerifier(g, source, dist);
     };
 
-    BenchmarkKernel(cli, g, SSSPBound, PrintSSSPStats, VerifierBound);
+    BenchmarkKernel(cli, g, InitWrapper, SSSPBound, PrintSSSPStats,
+                    VerifierBound);
     delta_selector.PrintLast();
   }
 
