@@ -1,6 +1,7 @@
 # See LICENSE.txt for license details.
 
-CXX_FLAGS += -std=c++11 -O3 -Wall -march=native
+# C++17 so that new[] honours the cache-line alignment of sssp's padded distances
+CXX_FLAGS += -std=c++17 -O3 -Wall -march=native
 PAR_FLAG = -fopenmp
 
 ifneq (,$(findstring icpc,$(CXX)))

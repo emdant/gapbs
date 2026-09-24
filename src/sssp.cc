@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <iostream>
 #include <limits>
+#include <new>
 #include <queue>
 #include <vector>
 
@@ -66,8 +67,20 @@ const WeightT kDistInf = numeric_limits<WeightT>::max() / 2;
 const size_t kMaxBin = numeric_limits<size_t>::max() / 2;
 const size_t kBinSizeThreshold = 1000;
 
+#ifdef __cpp_lib_hardware_interference_size
+constexpr size_t kCacheLineSize = std::hardware_destructive_interference_size;
+#else
+constexpr size_t kCacheLineSize = 64;
+#endif
+
+// A vertex's distance, alone on its own cache line so that relaxations of
+// different vertices never falsely share one.
+struct alignas(kCacheLineSize) PaddedDist {
+  WeightT value;
+};
+
 inline void RelaxEdges(const WGraph &g, NodeID u, WeightT delta,
-                       pvector<WeightT> &dist,
+                       pvector<PaddedDist> &dist,
                        vector<vector<NodeID>> &local_bins
 #ifdef COUNT_RELAX
                        ,
@@ -78,22 +91,22 @@ inline void RelaxEdges(const WGraph &g, NodeID u, WeightT delta,
 #ifdef COUNT_RELAX
     visits++;
 #endif
-    WeightT old_dist = dist[wn.v];
-    WeightT new_dist = dist[u] + wn.w;
+    WeightT old_dist = dist[wn.v].value;
+    WeightT new_dist = dist[u].value + wn.w;
     while (new_dist < old_dist) {
-      if (compare_and_swap(dist[wn.v], old_dist, new_dist)) {
+      if (compare_and_swap(dist[wn.v].value, old_dist, new_dist)) {
         size_t dest_bin = new_dist / delta;
         if (dest_bin >= local_bins.size())
           local_bins.resize(dest_bin + 1);
         local_bins[dest_bin].push_back(wn.v);
         break;
       }
-      old_dist = dist[wn.v]; // swap failed, recheck dist update & retry
+      old_dist = dist[wn.v].value; // swap failed, recheck dist update & retry
     }
   }
 }
 
-pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
+pvector<PaddedDist> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
                            bool logging_enabled = false) {
   Timer t;
 #ifdef COUNT_RELAX
@@ -105,8 +118,8 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
   double total_copy_time = 0;
   double total_barriers_time = 0;
 #endif
-  pvector<WeightT> dist(g.num_nodes(), kDistInf);
-  dist[source] = 0;
+  pvector<PaddedDist> dist(g.num_nodes(), PaddedDist{kDistInf});
+  dist[source].value = 0;
   pvector<NodeID> frontier(g.num_edges_directed());
   // std::vector<std::size_t> frontier_size;
   // two element arrays for double buffering curr=iter&1, next=(iter+1)&1
@@ -139,7 +152,7 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
 #pragma omp for nowait schedule(dynamic, 64)
       for (size_t i = 0; i < curr_frontier_tail; i++) {
         NodeID u = frontier[i];
-        if (dist[u] >= delta * static_cast<WeightT>(curr_bin_index))
+        if (dist[u].value >= delta * static_cast<WeightT>(curr_bin_index))
           RelaxEdges(g, u, delta, dist, local_bins
 #ifdef COUNT_RELAX
                      ,
@@ -257,15 +270,15 @@ pvector<WeightT> DeltaStep(const WGraph &g, NodeID source, WeightT delta,
   return dist;
 }
 
-void PrintSSSPStats(const WGraph &g, const pvector<WeightT> &dist) {
+void PrintSSSPStats(const WGraph &g, const pvector<PaddedDist> &dist) {
   WeightT max_dist = 0;
   int64_t num_reached = 0;
 
 #pragma omp parallel for reduction(+ : num_reached) reduction(max : max_dist)
   for (size_t i = 0; i < dist.size(); i++) {
-    if (dist[i] != kDistInf && dist[i] > max_dist)
-      max_dist = dist[i];
-    if (dist[i] != kDistInf)
+    if (dist[i].value != kDistInf && dist[i].value > max_dist)
+      max_dist = dist[i].value;
+    if (dist[i].value != kDistInf)
       num_reached++;
   }
 
@@ -275,7 +288,7 @@ void PrintSSSPStats(const WGraph &g, const pvector<WeightT> &dist) {
 
 // Compares against simple serial implementation
 bool SSSPVerifier(const WGraph &g, NodeID source,
-                  const pvector<WeightT> &dist_to_test) {
+                  const pvector<PaddedDist> &dist_to_test) {
   // Serial Dijkstra implementation to get oracle distances
   pvector<WeightT> oracle_dist(g.num_nodes(), kDistInf);
   oracle_dist[source] = 0;
@@ -298,8 +311,9 @@ bool SSSPVerifier(const WGraph &g, NodeID source,
   // Report any mismatches
   bool all_ok = true;
   for (NodeID n : g.vertices()) {
-    if (dist_to_test[n] != oracle_dist[n]) {
-      cout << n << ": " << dist_to_test[n] << " != " << oracle_dist[n] << endl;
+    if (dist_to_test[n].value != oracle_dist[n]) {
+      cout << n << ": " << dist_to_test[n].value << " != " << oracle_dist[n]
+           << endl;
       all_ok = false;
     }
   }
@@ -339,7 +353,7 @@ int main(int argc, char *argv[]) {
     };
 
     auto VerifierBound = [source](const WGraph &g,
-                                  const pvector<WeightT> &dist) {
+                                  const pvector<PaddedDist> &dist) {
       return SSSPVerifier(g, source, dist);
     };
 
